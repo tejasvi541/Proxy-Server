@@ -1,0 +1,12 @@
+{
+  "name": "My Server Dev",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "workspaceFolder": "/app",
+  "forwardPorts": [8080], // Change port if necessary
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+  "extensions": ["ms-vscode.cpptools"]
+}
