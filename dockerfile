@@ -27,5 +27,4 @@ RUN make all
 # Expose the port that your server listens on (change this to your actual port)
 EXPOSE 8080
 
-# Command to run when the container starts (change this to your actual executable and port)
-CMD ["./proxy", "8080"]
+# CMD ["./proxy", "8080"]
