@@ -49,7 +49,7 @@ int cache_size = 0;
 int main(int argc, char *argv[]) {
 
     int client_socket_id, client_length;
-    struct sockaddr sever_addr, client_addr;
+    struct sockaddr_in server_addr, client_addr;
     sem_init(&semaphore, 0, MAX_CLIENTS);
 
     pthread_mutex_init(&lock, NULL);
@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    bzero((char*)&sever_addr, sizeof(sever_addr));
+    bzero((char*)&server_addr, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port_number);
     server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -85,7 +85,40 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    
+    printf("Binding on the post %d\n", port_number);
+
+    int listent_status = listen(proxy_socket_id, MAX_CLIENTS);
+
+    if(listent_status<0){
+        printf("Error in listening");
+        exit(1);
+    }
+
+    int i = 0;
+    int Connceted_Socket_Id[MAX_CLIENTS];
+
+
+    while(1){
+        bzero((char *)&client_addr, sizeof(client_addr));
+        client_length = sizeof(client_addr);
+
+        client_socket_id = accept(proxy_socket_id, (struct sockaddr_in*)&client_addr, (socklen_t*)&client_length);
+
+        if(client_socket_id<0){
+            printf("Unable to connect");
+            exit(1);
+        }else{
+            Connceted_Socket_Id[i] = client_socket_id;
+        }
+
+        struct sockaddr_in *client_pt = (struct sockeradddr_in *)&client_addr;
+        struct in_addr ip_addr = client_pt->sin_addr;
+        char str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &ip_addr, str, INET6_ADDRSTRLEN);
+
+
+    }
+
 
     return 0;
 }
