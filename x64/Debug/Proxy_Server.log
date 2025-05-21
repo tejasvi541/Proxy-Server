@@ -1,0 +1,5 @@
+﻿  proxy_parse.c
+  proxy_server.c
+W:\Work\PROXY-SERVER_\Proxy_Server\proxy_server.c(1,9): warning C4067: unexpected tokens following preprocessor directive - expected a newline
+  Generating Code...
+  Proxy_Server.vcxproj -> W:\Work\PROXY-SERVER_\Proxy_Server\x64\Debug\Proxy_Server.exe
