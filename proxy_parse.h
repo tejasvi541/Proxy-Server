@@ -1,109 +1,111 @@
-/*
- * proxy_parse.h -- a HTTP Request Parsing Library.
+﻿/*───────────────────────────────────────────────────────────────────────────
+ *  proxy_parse.h
  *
- * Written by: Matvey Arye
- * For: COS 518
+ *  A *minimal but sufficient* HTTP request parser used by our proxy.
+ *  – Pure ISO-C17  →  works on Windows / Linux / macOS unchanged
+ *  – Only understands absolute-URI GET lines (enough for a teaching proxy)
  *
- */
+ *  Copyright notes:
+ *      Skeleton was written for Princeton COS-518 (Matvey Arye).
+ *      Re-commented and tidied by Tejasvi, May 2025.
+ *───────────────────────────────────────────────────────────────────────────*/
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <errno.h>
+#ifndef PROXY_PARSE_H
+#define PROXY_PARSE_H
 
-#include <ctype.h>
+#include <stddef.h>     /* size_t */
 
-#ifndef PROXY_PARSE
-#define PROXY_PARSE
+ /* Toggle noisy stdout debugging by flipping this to 1. */
+#define DEBUG_PROXY_PARSE  0
 
-#define DEBUG 1
+/*──────────────────────────────────────────────────────────────────────
+ *  ParsedHeader – a single “Key: Value\r\n” pair.
+ *  We store the *exact* strings (no canonicalisation) so we can replay
+ *  or edit them later.
+ *──────────────────────────────────────────────────────────────────────*/
+typedef struct ParsedHeader {
+    char* key;            size_t key_length;
+    char* value;          size_t value_length;
+} ParsedHeader;
 
- /*
-    ParsedRequest objects are created from parsing a buffer containing a HTTP
-    request. The request buffer consists of a request line followed by a number
-    of headers. Request line fields such as method, protocol etc. are stored
-    explicitly. Headers such as 'Content-Length' and their values are maintained
-    in a linked list. Each node in this list is a ParsedHeader and contains a
-    key-value pair.
+/*──────────────────────────────────────────────────────────────────────
+ *  ParsedRequest – one fully-split HTTP/1.x request.
+ *
+ *      Example:
+ *          GET http://example.com:8080/index.html HTTP/1.1\r\n
+ *          Host: example.com\r\n
+ *          Connection: close\r\n
+ *          \r\n
+ *
+ *  After parsing, the above becomes:
+ *      method   = "GET"
+ *      protocol = "http"
+ *      host     = "example.com"
+ *      port     = "8080"
+ *      path     = "/index.html"
+ *      version  = "HTTP/1.1"
+ *      headers  = {{"Host"," example.com"}, {"Connection"," close"}}
+ *
+ *  raw_request_line keeps a *copy* of “GET http://… HTTP/1.1”.
+ *──────────────────────────────────────────────────────────────────────*/
+typedef struct ParsedRequest {
 
-    The buf and buflen fields are used internally to maintain the parsed request
-    line.
-  */
-struct ParsedRequest {
-    char* method;
-    char* protocol;
-    char* host;
-    char* port;
-    char* path;
-    char* version;
-    char* buf;
-    size_t buflen;
-    struct ParsedHeader* headers;
-    size_t headersused;
-    size_t headerslen;
-};
+    /* ───────── Tokens from the request-line */
+    char* method;          /* GET / POST / CONNECT …                */
+    char* protocol;        /* always “http” for this proxy          */
+    char* host;            /* hostname part of URL                  */
+    char* port;            /* NULL → default 80                     */
+    char* path;            /* resource path, starts with “/”        */
+    char* version;         /* “HTTP/1.0” or “HTTP/1.1”              */
 
-/*
-   ParsedHeader: any header after the request line is a key-value pair with the
-   format "key:value\r\n" and is maintained in the ParsedHeader linked list
-   within ParsedRequest
-*/
-struct ParsedHeader {
-    char* key;
-    size_t keylen;
-    char* value;
-    size_t valuelen;
-};
+    /* ───────── Original request-line (for cheap substring copies)   */
+    char* raw_request_line;
+    size_t  raw_request_line_length;
 
+    /* ───────── Dynamic header array                                 */
+    ParsedHeader* headers;           /* malloc-grown list             */
+    size_t        headers_in_use;    /* number of valid entries       */
+    size_t        headers_capacity;  /* slots currently allocated     */
 
-/* Create an empty parsing object to be used exactly once for parsing a single
- * request buffer */
-struct ParsedRequest* ParsedRequest_create();
+} ParsedRequest;
 
-/* Parse the request buffer in buf given that buf is of length buflen */
-int ParsedRequest_parse(struct ParsedRequest* parse, const char* buf,
-    int buflen);
+/*──────────────────────── Public API – implemented in proxy_parse.c ─────────*/
 
-/* Destroy the parsing object. */
-void ParsedRequest_destroy(struct ParsedRequest* pr);
+/* Memory lifecycle */
+ParsedRequest* ParsedRequest_create(void);
+void            ParsedRequest_destroy(ParsedRequest* pr);
 
-/*
-   Retrieve the entire buffer from a parsed request object. buf must be an
-   allocated buffer of size buflen, with enough space to write the request
-   line, headers and the trailing \r\n. buf will not be NUL terminated by
-   unparse().
- */
-int ParsedRequest_unparse(struct ParsedRequest* pr, char* buf,
-    size_t buflen);
+/* From wire-format to struct – returns 0 on success, -1 otherwise. */
+int             ParsedRequest_parse(ParsedRequest* pr,
+    const char* buffer,
+    int           buffer_len);
 
-/*
-   Retrieve the entire buffer with the exception of request line from a parsed
-   request object. buf must be an allocated buffer of size buflen, with enough
-   space to write the headers and the trailing \r\n. buf will not be NUL
-   terminated by unparse(). If there are no headers, the trailing \r\n is
-   unparsed.
- */
-int ParsedRequest_unparse_headers(struct ParsedRequest* pr, char* buf,
-    size_t buflen);
+/* Struct  →  wire-format (complete request or headers-only)         */
+int             ParsedRequest_unparse(ParsedRequest* pr,
+    char* dst,
+    size_t         dst_len);
+int             ParsedRequest_unparse_headers(ParsedRequest* pr,
+    char* dst,
+    size_t         dst_len);
 
-/* Total length including request line, headers and the trailing \r\n*/
-size_t ParsedRequest_totalLen(struct ParsedRequest* pr);
+/* Convenience length helpers                                        */
+size_t          ParsedRequest_totalLen(ParsedRequest* pr);
+size_t          ParsedHeader_headersLen(ParsedRequest* pr);
 
-/* Length including headers, if any, and the trailing \r\n but excluding the
- * request line.
- */
-size_t ParsedHeader_headersLen(struct ParsedRequest* pr);
-
-/* Set, get, and remove null-terminated header keys and values */
-int ParsedHeader_set(struct ParsedRequest* pr, const char* key,
+/* Header CRUD                                                        */
+int             ParsedHeader_set(ParsedRequest* pr,
+    const char* key,
     const char* value);
-struct ParsedHeader* ParsedHeader_get(struct ParsedRequest* pr,
+ParsedHeader* ParsedHeader_get(ParsedRequest* pr,
     const char* key);
-int ParsedHeader_remove(struct ParsedRequest* pr, const char* key);
+int             ParsedHeader_remove(ParsedRequest* pr,
+    const char* key);
 
-/* debug() prints out debugging info if DEBUG is set to 1 */
-void debug(const char* format, ...);
+/* printf-style debug helper (only prints when DEBUG_PROXY_PARSE=1). */
+void            debug_proxy_parse(const char* fmt, ...);
+
+#endif /* PROXY_PARSE_H */
+
 
 /* Example usage:
 
@@ -182,4 +184,3 @@ void debug(const char* format, ...);
    ParsedRequest_destroy(req);
 */
 
-#endif
