@@ -1,5 +1,9 @@
 # Proxy Server — Project Explained
 
+> New to structs, threads, locks, or TLS? Start with
+> [LEARN_THE_CODE.md](LEARN_THE_CODE.md) — a from-zero tutorial with
+> diagrams for every concept used here. This file is the reference.
+
 ## 0. Verdict: the project is FINISHED ✅
 
 All pieces are implemented, compile warning-free, and were verified
