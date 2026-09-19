@@ -1,3 +1,32 @@
-echo ".vs/" >> .gitignore
-
+# Visual Studio / MSVC
 .vs/
+x64/
+Debug/
+Release/
+*.user
+*.suo
+*.VC.db
+*.ipch
+*.obj
+*.pdb
+*.ilk
+*.log
+*.tlog
+*.recipe
+*.idb
+FileListAbsolute.txt
+
+# Build outputs (Makefile / GCC / Clang)
+proxy
+proxy_server
+*.o
+*.a
+*.out
+*.exe
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*~

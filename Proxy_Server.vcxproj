@@ -135,6 +135,10 @@
   <ItemGroup>
     <ClInclude Include="proxy_parse.h" />
   </ItemGroup>
+  <!-- Optional TLS (https:// origin fetch): install OpenSSL (e.g. vcpkg),
+       then add USE_TLS to PreprocessorDefinitions, the OpenSSL include dir
+       to AdditionalIncludeDirectories, and libssl/libcrypto to dependencies.
+       Without it the build still works; https:// URLs return 501. -->
   <ItemGroup>
     <ClCompile Include="proxy_parse.c" />
     <ClCompile Include="proxy_server.c" />

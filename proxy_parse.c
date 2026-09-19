@@ -23,6 +23,13 @@
 #ifdef _WIN32
 #   define strncasecmp _strnicmp
 #   define strcasecmp  _stricmp
+#   define x_strdup    _strdup
+/* MSVC's strtok_s(buf, delims, &ctx); POSIX equivalent is strtok_r. */
+#   define x_strtok    strtok_s
+#else
+#   include <strings.h>   /* strncasecmp / strcasecmp on POSIX */
+#   define x_strdup    strdup
+#   define x_strtok    strtok_r
 #endif
 
 /* malloc wrapper that *exits* on OOM so callers stay clean. */
@@ -89,36 +96,49 @@ int ParsedRequest_parse(ParsedRequest* pr, const char* buf, int buflen)
 
     /* Tokenise: METHOD  SP  URL  SP  VERSION */
     char* saveptr = NULL;
-    char* token = strtok_s(pr->raw_request_line, " ", &saveptr);
+    char* token = x_strtok(pr->raw_request_line, " ", &saveptr);
     if (!token) return -1;
-    pr->method = _strdup(token);
+    pr->method = x_strdup(token);
 
-    token = strtok_s(NULL, " ", &saveptr);
+    token = x_strtok(NULL, " ", &saveptr);
     if (!token) return -1;
     char* full_url = token;                      /* still holds scheme */
 
-    token = strtok_s(NULL, "\r", &saveptr);
+    token = x_strtok(NULL, "\r", &saveptr);
     if (!token) return -1;
-    pr->version = _strdup(token);
+    pr->version = x_strdup(token);
 
-    /*─────────────────── 2) Decompose absolute URL ─────────────────*/
-    if (strncasecmp(full_url, "http://", 7) != 0) return -1;
-    full_url += 7;                               /* skip 'http://'   */
+    /*─────────────────── 2) Decompose absolute URL ─────────────────
+     *  Accepts http:// (default :80) and https:// (default :443).
+     *  full_url is now "host[:port][/path]". The path is snapshotted
+     *  FIRST so host/port copies below never swallow it. */
+    const char *scheme;
+    if (strncasecmp(full_url, "https://", 8) == 0) {
+        scheme = "https";
+        full_url += 8;
+    } else if (strncasecmp(full_url, "http://", 7) == 0) {
+        scheme = "http";
+        full_url += 7;
+    } else {
+        return -1;
+    }
 
-    char* path_start = strchr(full_url, '/');   /* host[:port]/path */
-    char* colon_in_hp = strchr(full_url, ':');
+    char* path_start = strchr(full_url, '/');
+    char* path_copy = x_strdup(path_start ? path_start : "/");
+    if (path_start) *path_start = '\0';          /* isolate host[:port] */
 
-    if (colon_in_hp && (!path_start || colon_in_hp < path_start)) {
-        *colon_in_hp = '\0';
-        pr->host = _strdup(full_url);
-        pr->port = _strdup(colon_in_hp + 1);
+    char* colon = strchr(full_url, ':');
+    if (colon) {
+        *colon = '\0';
+        pr->host = x_strdup(full_url);
+        pr->port = x_strdup(colon + 1);
     }
     else {
-        pr->host = _strdup(full_url);
+        pr->host = x_strdup(full_url);
         pr->port = NULL;                         /* implies :80      */
     }
-    pr->path = _strdup(path_start ? path_start : "/");
-    pr->protocol = _strdup("http");
+    pr->path = path_copy;
+    pr->protocol = x_strdup(scheme);
 
     /*─────────────────── 3) Parse headers one by one ───────────────*/
     const char* cursor = eol + 2;                /* skip first CRLF  */
@@ -212,12 +232,12 @@ int ParsedHeader_set(ParsedRequest* pr, const char* key, const char* val)
     if (!hdr) {                                             /* new   */
         ensure_header_capacity(pr, pr->headers_in_use + 1);
         hdr = &pr->headers[pr->headers_in_use++];
-        hdr->key = _strdup(key);
+        hdr->key = x_strdup(key);
     }
     else {
         free(hdr->value);
     }
-    hdr->value = _strdup(val);
+    hdr->value = x_strdup(val);
     hdr->key_length = strlen(hdr->key);
     hdr->value_length = strlen(hdr->value);
     return 0;
@@ -239,7 +259,6 @@ int ParsedHeader_remove(ParsedRequest* pr, const char* key)
 }
 
 /*──────────────────── Debug printf helper ─────────────────────────*/
-#include <stdarg.h>
 void debug_proxy_parse(const char* fmt, ...)
 {
     if (!DEBUG_PROXY_PARSE) return;
@@ -249,79 +268,6 @@ void debug_proxy_parse(const char* fmt, ...)
 }
 
 
-/* Example usage:
-
-   const char *c =
-   "GET http://www.google.com:80/index.html/ HTTP/1.0\r\nContent-Length:"
-   " 80\r\nIf-Modified-Since: Sat, 29 Oct 1994 19:43:31 GMT\r\n\r\n";
-
-   int len = strlen(c);
-   //Create a ParsedRequest to use. This ParsedRequest
-   //is dynamically allocated.
-   ParsedRequest *req = ParsedRequest_create();
-   if (ParsedRequest_parse(req, c, len) < 0) {
-       printf("parse failed\n");
-       return -1;
-   }
-
-   printf("Method:%s\n", req->method);
-   printf("Host:%s\n", req->host);
-
-   // Turn ParsedRequest into a string.
-   // Friendly reminder: Be sure that you need to
-   // dynamically allocate string and if you
-   // do, remember to free it when you are done.
-   // (Dynamic allocation wasn't necessary here,
-   // but it was used as an example.)
-   int rlen = ParsedRequest_totalLen(req);
-   char *b = (char *)malloc(rlen+1);
-   if (ParsedRequest_unparse(req, b, rlen) < 0) {
-      printf("unparse failed\n");
-      return -1;
-   }
-   b[rlen]='\0';
-   // print out b for text request
-   free(b);
-
-
-   // Turn the headers from the request into a string.
-   rlen = ParsedHeader_headersLen(req);
-   char buf[rlen+1];
-   if (ParsedRequest_unparse_headers(req, buf, rlen) < 0) {
-      printf("unparse failed\n");
-      return -1;
-   }
-   buf[rlen] ='\0';
-   //print out buf for text headers only
-
-   // Get a specific header (key) from the headers. A key is a header field
-   // such as "If-Modified-Since" which is followed by ":"
-   struct ParsedHeader *r = ParsedHeader_get(req, "If-Modified-Since");
-   printf("Modified value: %s\n", r->value);
-
-   // Remove a specific header by name. In this case remove
-   // the "If-Modified-Since" header.
-   if (ParsedHeader_remove(req, "If-Modified-Since") < 0){
-      printf("remove header key not work\n");
-     return -1;
-   }
-
-   // Set a specific header (key) to a value. In this case,
-   //we set the "Last-Modified" key to be set to have as
-   //value  a date in February 2014
-
-    if (ParsedHeader_set(req, "Last-Modified", " Wed, 12 Feb 2014 12:43:31 GMT") < 0){
-     printf("set header key not work\n");
-     return -1;
-
-    }
-
-   // Check the modified Header key value pair
-    r = ParsedHeader_get(req, "Last-Modified");
-    printf("Last-Modified value: %s\n", r->value);
-
-   // Call destroy on any ParsedRequests that you
-   // create once you are done using them. This will
-   // free memory dynamically allocated by the proxy_parse library.
-   ParsedRequest_destroy(req);
-*/
+/* Worked example (parse → unparse → get/set/remove → destroy) lives in
+ * PROJECT_EXPLAINED.md so it is written once instead of being pasted
+ * at the bottom of both proxy_parse.c and proxy_parse.h. */
